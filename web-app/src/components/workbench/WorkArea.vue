@@ -173,7 +173,7 @@
 <script setup lang="ts">
 import { ref, watch, computed } from 'vue'
 import { useMessage } from 'naive-ui'
-import { workflowApi } from '../../api/workflow'
+import { workflowApi, consumeHostedWriteStream } from '../../api/workflow'
 import { bookApi } from '../../api/book'
 
 interface Chapter {
@@ -427,7 +427,7 @@ const handleStartHosted = async () => {
   outputText.value = ''
 
   try {
-    await workflowApi.consumeHostedWriteStream(
+    await consumeHostedWriteStream(
       props.slug,
       {
         from_chapter: hostedFrom.value,
