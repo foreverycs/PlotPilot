@@ -27,7 +27,8 @@ from interfaces.api.v1 import chapter_element_routes, knowledge_graph_routes, co
 from interfaces.api.v1 import worldbuilding_routes
 from web.routers.stats import create_stats_router
 from web.services.stats_service import StatsService
-from web.repositories.stats_repository_adapter import StatsRepositoryAdapter
+from web.repositories.sqlite_stats_repository_adapter import SqliteStatsRepositoryAdapter
+from infrastructure.persistence.database.connection import get_database
 from application.paths import DATA_DIR
 
 # 后端版本号（每次重启递增）
@@ -70,8 +71,8 @@ app.include_router(chapter_element_routes.router)
 app.include_router(knowledge_graph_routes.router)
 app.include_router(worldbuilding_routes.router)
 
-# 注册统计路由（使用适配器连接新架构）
-stats_repository = StatsRepositoryAdapter(DATA_DIR)
+# 注册统计路由（使用 SQLite 适配器）
+stats_repository = SqliteStatsRepositoryAdapter(get_database())
 stats_service = StatsService(stats_repository)
 stats_router = create_stats_router(stats_service)
 app.include_router(stats_router, prefix="/api/stats", tags=["statistics"])

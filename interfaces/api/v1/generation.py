@@ -496,9 +496,6 @@ class PlanRequest(BaseModel):
     """大纲规划请求"""
     mode: str = Field("initial", description="模式：initial=首次生成，revise=再规划")
     dry_run: bool = Field(False, description="预演模式（不调用 LLM）")
-    parts: int = Field(3, gt=0, description="部数")
-    volumes_per_part: int = Field(3, gt=0, description="每部卷数")
-    acts_per_volume: int = Field(3, gt=0, description="每卷幕数")
 
 
 class PlanResponse(BaseModel):
@@ -551,16 +548,17 @@ async def plan_novel(
     chapter_service = Depends(get_chapter_service),
     macro_planning_service = Depends(get_macro_planning_service)
 ):
-    """大纲规划：生成完整的部-卷-幕结构 + 分章大纲
+    """大纲规划：根据世界观、文约、初始地图、初始角色，AI 自主生成部-卷-幕结构
 
     - mode=initial: 首次生成（适用于新书）
     - mode=revise: 再规划（基于已有进度重新规划）
     - dry_run=true: 预演模式，不调用 LLM
-    - parts: 部数（默认3）
-    - volumes_per_part: 每部卷数（默认3）
-    - acts_per_volume: 每卷幕数（默认3）
+
+    AI 会根据 Bible 中的世界观、角色、地点等信息，自主决定部/卷/幕的数量和结构
     """
     try:
+        logger.info(f"[PlanNovel] Starting plan for novel {novel_id}")
+
         if request.dry_run:
             return PlanResponse(
                 success=True,
@@ -573,42 +571,45 @@ async def plan_novel(
             )
 
         # 获取小说信息
+        logger.info(f"[PlanNovel] Getting novel info")
         novel = novel_service.get_novel(novel_id)
         if not novel:
             raise HTTPException(
                 status_code=status.HTTP_404_NOT_FOUND,
                 detail=f"Novel {novel_id} not found"
             )
+        logger.info(f"[PlanNovel] Novel found: {novel.title}")
 
-        # 获取 Bible 上下文
+        # 获取 Bible 上下文（世界观、文约、初始地图、初始角色）
         bible_context = None
         try:
+            logger.info(f"[PlanNovel] Getting Bible context")
             bible = bible_service.get_bible(novel_id)
             if bible:
                 bible_context = {
-                    "characters": [c.name for c in bible.characters[:5]],
-                    "locations": [loc.name for loc in bible.locations[:5]],
+                    "worldview": bible.worldview or "",
+                    "writing_guidelines": bible.writing_guidelines or "",
+                    "characters": [{"name": c.name, "description": c.description} for c in bible.characters],
+                    "locations": [{"name": loc.name, "description": loc.description} for loc in bible.locations],
                     "conflicts": []  # TODO: 从 Bible 中提取冲突
                 }
+                logger.info(f"[PlanNovel] Bible context: {len(bible_context.get('characters', []))} chars, {len(bible_context.get('locations', []))} locs")
         except Exception as e:
             logger.warning(f"Failed to get Bible context: {e}")
 
-        # 1. 生成宏观结构（部-卷-幕）
-        structure_preference = {
-            "parts": request.parts,
-            "volumes_per_part": request.volumes_per_part,
-            "acts_per_volume": request.acts_per_volume
-        }
-
+        # 生成宏观结构（部-卷-幕），AI 自主决定数量
+        logger.info(f"[PlanNovel] Calling generate_macro_plan (AI autonomous planning)")
         macro_plan = await macro_planning_service.generate_macro_plan(
             novel_id=novel_id,
             premise=novel.premise or novel.title,
             target_chapters=novel.target_chapters,
-            structure_preference=structure_preference,
+            structure_preference=None,  # 不限制结构，让 AI 自主决定
             bible_context=bible_context
         )
+        logger.info(f"[PlanNovel] Macro plan generated with {len(macro_plan.get('structure', []))} parts")
 
-        # 2. 确认并创建结构节点
+        # 确认并创建结构节点
+        logger.info(f"[PlanNovel] Calling confirm_macro_plan")
         confirm_result = await macro_planning_service.confirm_macro_plan(
             novel_id=novel_id,
             structure=macro_plan["structure"]
@@ -616,33 +617,12 @@ async def plan_novel(
 
         logger.info(f"Created {confirm_result['created_nodes']} structure nodes")
 
-        # 3. 为前 5 章生成大纲
-        chapters_planned = 0
-        for chapter_num in range(1, 6):
-            try:
-                outline = await workflow.suggest_outline(novel_id, chapter_num)
-
-                # 创建章节
-                chapter_id = f"{novel_id}-chapter-{chapter_num}"
-                novel_service.add_chapter(
-                    novel_id=novel_id,
-                    chapter_id=chapter_id,
-                    number=chapter_num,
-                    title=f"第{chapter_num}章",
-                    content=""
-                )
-
-                logger.info(f"Created chapter {chapter_num} with outline: {outline[:100]}...")
-                chapters_planned += 1
-            except Exception as e:
-                logger.warning(f"Failed to generate outline for chapter {chapter_num}: {e}")
-
         return PlanResponse(
             success=True,
-            message=f"成功创建 {confirm_result['created_nodes']} 个结构节点，生成 {chapters_planned} 章大纲",
+            message=f"成功创建 {confirm_result['created_nodes']} 个结构节点",
             bible_updated=False,
-            outline_updated=True,
-            chapters_planned=chapters_planned,
+            outline_updated=False,
+            chapters_planned=0,
             structure_created=True,
             nodes_created=confirm_result['created_nodes']
         )
