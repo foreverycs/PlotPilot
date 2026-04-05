@@ -71,16 +71,26 @@ export interface ConsistencyReportDTO {
   suggestions: string[]
 }
 
+export interface StyleWarning {
+  pattern: string
+  text: string
+  start: number
+  end: number
+  severity: 'info' | 'warning'
+}
+
 export interface GenerateChapterWorkflowResponse {
   content: string
   consistency_report: ConsistencyReportDTO
   token_count: number
+  style_warnings?: StyleWarning[]
+  ghost_annotations?: unknown[]
 }
 
 export type GenerateChapterStreamEvent =
   | { type: 'phase'; phase: 'planning' | 'context' | 'llm' | 'post' }
   | { type: 'chunk'; text: string }
-  | { type: 'done'; content: string; consistency_report: ConsistencyReportDTO; token_count: number }
+  | { type: 'done'; content: string; consistency_report: ConsistencyReportDTO; token_count: number; style_warnings?: StyleWarning[]; ghost_annotations?: unknown[] }
   | { type: 'error'; message: string }
 
 function parseSseDataLine(line: string): unknown | null {

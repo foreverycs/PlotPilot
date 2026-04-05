@@ -10,7 +10,10 @@ from application.dtos.chapter_dto import ChapterDTO
 from application.dtos.novel_dto import NovelDTO
 from application.dtos.chapter_review_dto import ChapterReviewDTO
 from application.dtos.chapter_structure_dto import ChapterStructureDTO
-from interfaces.api.dependencies import get_chapter_service, get_novel_service, get_chapter_indexing_service
+from interfaces.api.dependencies import (
+    get_chapter_service, get_novel_service,
+    get_chapter_indexing_service, get_voice_drift_service,
+)
 from domain.shared.exceptions import EntityNotFoundError
 
 logger = logging.getLogger(__name__)
@@ -29,6 +32,62 @@ async def _try_index_chapter(novel_id: str, chapter_number: int, content: str, i
         logger.debug("章节索引完成 novel=%s ch=%d", novel_id, chapter_number)
     except Exception as e:
         logger.warning("章节索引失败 novel=%s ch=%d: %s", novel_id, chapter_number, e)
+
+
+def _try_score_drift(novel_id: str, chapter_number: int, content: str, drift_svc) -> None:
+    """后台同步计算章节文风相似度，写入 chapter_style_scores，失败仅记日志。"""
+    if drift_svc is None or not content.strip():
+        return
+    try:
+        result = drift_svc.score_chapter(
+            novel_id=novel_id,
+            chapter_number=chapter_number,
+            content=content,
+        )
+        score = result.get("similarity_score")
+        alert = result.get("drift_alert", False)
+        if alert:
+            logger.warning(
+                "文风漂移告警 novel=%s 最近连续章节相似度偏低", novel_id
+            )
+        else:
+            logger.debug(
+                "文风评分完成 novel=%s ch=%d score=%s", novel_id, chapter_number, score
+            )
+    except Exception as e:
+        logger.warning("文风评分失败 novel=%s ch=%d: %s", novel_id, chapter_number, e)
+
+
+async def _try_infer_kg_chapter(novel_id: str, chapter_number: int) -> None:
+    """后台异步对章节做知识图谱增量推断，失败仅记日志。
+
+    通过 story_node 表找到对应章节节点 UUID，再调用 KnowledgeGraphService。
+    如果找不到节点（结构树未规划），静默跳过。
+    """
+    try:
+        from application.paths import get_db_path
+        from infrastructure.persistence.database.sqlite_knowledge_repository import SqliteKnowledgeRepository
+        from infrastructure.persistence.database.triple_repository import TripleRepository
+        from infrastructure.persistence.database.chapter_element_repository import ChapterElementRepository
+        from infrastructure.persistence.database.story_node_repository import StoryNodeRepository
+        from application.services.knowledge_graph_service import KnowledgeGraphService
+
+        db_path = get_db_path()
+        kr = SqliteKnowledgeRepository(db_path)
+        story_node_id = kr.find_story_node_id_for_chapter_number(novel_id, chapter_number)
+        if not story_node_id:
+            logger.debug("KG 推断跳过：章节 %d 无故事节点 novel=%s", chapter_number, novel_id)
+            return
+
+        kg_service = KnowledgeGraphService(
+            TripleRepository(db_path),
+            ChapterElementRepository(db_path),
+            StoryNodeRepository(db_path),
+        )
+        triples = await kg_service.infer_from_chapter(story_node_id)
+        logger.debug("KG 推断完成 novel=%s ch=%d 新三元组=%d", novel_id, chapter_number, len(triples))
+    except Exception as e:
+        logger.warning("KG 推断失败 novel=%s ch=%d: %s", novel_id, chapter_number, e)
 
 
 router = APIRouter(tags=["chapters"])
@@ -172,20 +231,12 @@ async def update_chapter(
     chapter_number: int = Path(..., gt=0, description="章节编号"),
     service: ChapterService = Depends(get_chapter_service),
     indexing_svc=Depends(get_chapter_indexing_service),
+    drift_svc=Depends(get_voice_drift_service),
 ):
-    """更新章节内容，保存成功后后台触发向量索引（QDRANT_ENABLED 未开启时静默跳过）。
-
-    Args:
-        novel_id: 小说 ID
-        chapter_number: 章节号
-        request: 更新内容请求
-        service: Chapter 服务
-
-    Returns:
-        更新后的章节 DTO
-
-    Raises:
-        HTTPException: 如果章节不存在
+    """更新章节内容，保存成功后后台触发：
+    1. 向量索引（QDRANT_ENABLED=true 时）
+    2. 文风漂移评分（与作者指纹对比，写入 chapter_style_scores）
+    3. 知识图谱增量推断（章节元素关联 → 新三元组）
     """
     try:
         chapter = service.update_chapter_by_novel_and_number(
@@ -196,9 +247,10 @@ async def update_chapter(
     except EntityNotFoundError as e:
         raise HTTPException(status_code=404, detail=str(e))
 
-    background_tasks.add_task(
-        _try_index_chapter, novel_id, chapter_number, request.content, indexing_svc
-    )
+    content = request.content
+    background_tasks.add_task(_try_index_chapter, novel_id, chapter_number, content, indexing_svc)
+    background_tasks.add_task(_try_score_drift, novel_id, chapter_number, content, drift_svc)
+    background_tasks.add_task(_try_infer_kg_chapter, novel_id, chapter_number)
     return chapter
 
 

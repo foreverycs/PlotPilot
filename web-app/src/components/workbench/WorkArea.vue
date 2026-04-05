@@ -64,6 +64,20 @@
           </n-space>
         </div>
 
+        <!-- 续规划 badge -->
+        <n-alert
+          v-if="continuePlanBadge"
+          type="success"
+          :title="continuePlanBadge.message"
+          closable
+          @close="continuePlanBadge = null"
+          style="margin-top: 8px; font-size: 13px"
+        >
+          <n-button size="tiny" type="primary" @click="handleContinuePlanning">
+            打开续规划
+          </n-button>
+        </n-alert>
+
         <div v-if="reviewResult" class="review-result">
           <n-card title="审稿结果" size="small" :bordered="false">
             <template #header-extra>
@@ -552,6 +566,9 @@ const saving = ref(false)
 const reviewing = ref(false)
 const reviewResult = ref<{ score: number; suggestions: string[] } | null>(null)
 
+// 续规划提示：保存后检查幕是否完成
+const continuePlanBadge = ref<{ message: string; suggestCreate: boolean; actId: string } | null>(null)
+
 // Scene Director 开关
 const useSceneDirector = ref(false)
 const analyzingScene = ref(false)
@@ -692,15 +709,33 @@ const handleSave = async () => {
   if (!currentChapter.value) return
 
   saving.value = true
+  continuePlanBadge.value = null
   try {
     await chapterApi.updateChapter(props.slug, currentChapter.value.id, { content: chapterContent.value })
     originalContent.value = chapterContent.value
     message.success('保存成功')
     emit('chapterUpdated')
+    // 后台检查幕进度（不阻塞保存流程）
+    _checkActCompletionAfterSave(currentChapter.value.number)
   } catch (error) {
     message.error('保存失败')
   } finally {
     saving.value = false
+  }
+}
+
+async function _checkActCompletionAfterSave(chapterNumber: number) {
+  try {
+    const r = await planningApi.continuePlanning(props.slug, { current_chapter: chapterNumber })
+    if (r.act_completed && r.suggest_create_next) {
+      continuePlanBadge.value = {
+        message: r.message || '本幕已完成，建议创建下一幕',
+        suggestCreate: true,
+        actId: r.current_act_id ?? '',
+      }
+    }
+  } catch {
+    // 失败静默
   }
 }
 

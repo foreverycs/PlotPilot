@@ -25,13 +25,21 @@
               :disabled="generating"
             />
           </n-form-item>
-          <n-form-item label="本章大纲" :show-feedback="false">
+          <n-form-item :show-feedback="false">
+            <template #label>
+              <n-space :size="6" align="center">
+                <span>本章大纲</span>
+                <n-tag v-if="analyzingScene" size="tiny" type="info" round>🔍 场景分析中…</n-tag>
+                <n-tag v-else-if="cachedSceneAnalysis" size="tiny" type="success" round>✓ 场景已预分析</n-tag>
+              </n-space>
+            </template>
             <n-input
               v-model:value="outline"
               type="textarea"
-              placeholder="粘贴或编写本章大纲（必填）"
+              placeholder="粘贴或编写本章大纲（必填）；失去焦点后自动预分析场景"
               :autosize="{ minRows: 5, maxRows: 14 }"
               :disabled="generating"
+              @blur="autoAnalyzeScene"
             />
           </n-form-item>
 
@@ -75,6 +83,24 @@
               :token-count="result.token_count"
               @location-click="onLocationClick"
             />
+
+            <!-- 俗套句式命中 -->
+            <n-collapse v-if="result.style_warnings && result.style_warnings.length > 0" class="cliche-collapse">
+              <n-collapse-item :title="`⚠️ 俗套句式命中 ${result.style_warnings.length} 处（点击展开）`" name="cliche">
+                <n-space vertical :size="6">
+                  <n-alert
+                    v-for="(w, i) in result.style_warnings"
+                    :key="i"
+                    :type="w.severity === 'warning' ? 'warning' : 'info'"
+                    :title="w.pattern"
+                    style="font-size: 12px"
+                  >
+                    「{{ w.text }}」
+                  </n-alert>
+                </n-space>
+              </n-collapse-item>
+            </n-collapse>
+
             <n-form-item label="正文（可编辑后再保存）" :show-feedback="false">
               <n-input
                 v-model:value="editedContent"
@@ -158,6 +184,7 @@ import {
   workflowApi,
   consumeGenerateChapterStream,
   consumeHostedWriteStream,
+  analyzeScene,
   type GenerateChapterWorkflowResponse,
 } from '../../api/workflow'
 import { chapterApi } from '../../api/chapter'
@@ -204,6 +231,26 @@ const streamProgress = ref(0)
 const phaseLabel = ref('')
 let streamAbort: AbortController | null = null
 let chunkCount = 0
+
+// SceneDirector 自动预分析（大纲 blur 时触发）
+const cachedSceneAnalysis = ref<Record<string, unknown> | null>(null)
+const analyzingScene = ref(false)
+
+async function autoAnalyzeScene() {
+  const o = outline.value.trim()
+  const n = chapterNumber.value
+  if (!o || n == null || analyzingScene.value) return
+  analyzingScene.value = true
+  try {
+    const analysis = await analyzeScene(props.slug, n, o)
+    cachedSceneAnalysis.value = analysis as Record<string, unknown>
+  } catch {
+    // 失败静默，生成时仍可正常进行
+    cachedSceneAnalysis.value = null
+  } finally {
+    analyzingScene.value = false
+  }
+}
 
 const hostedFrom = ref<number | null>(1)
 const hostedTo = ref<number | null>(1)
@@ -280,6 +327,7 @@ function resetResult() {
   saveError.value = ''
   streamProgress.value = 0
   phaseLabel.value = ''
+  cachedSceneAnalysis.value = null
 }
 
 function phaseToProgress(phase: string): number {
@@ -388,7 +436,7 @@ async function runGenerate() {
     streamAbort = new AbortController()
     await consumeGenerateChapterStream(
       props.slug,
-      { chapter_number: n, outline: o },
+      { chapter_number: n, outline: o, scene_director_result: cachedSceneAnalysis.value ?? undefined },
       {
         signal: streamAbort.signal,
         onPhase: phase => {
@@ -526,5 +574,8 @@ function onLocationClick(location: number) {
 }
 .gwm-tabs :deep(.n-tabs-nav) {
   margin-bottom: 8px;
+}
+.cliche-collapse {
+  margin: 4px 0;
 }
 </style>

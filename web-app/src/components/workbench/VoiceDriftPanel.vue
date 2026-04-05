@@ -37,6 +37,37 @@
     />
 
     <n-empty v-else-if="!loading && report" description="暂无评分数据" size="small" />
+    <!-- 手动评分章节 -->
+    <n-collapse class="manual-score-collapse">
+      <n-collapse-item title="手动补算历史章节评分" name="manual">
+        <n-space vertical :size="8">
+          <n-text depth="3" style="font-size: 12px">
+            输入章节号，从正文中重算文风相似度并写入记录。
+          </n-text>
+          <n-space align="center" :size="8">
+            <n-input-number
+              v-model:value="manualChapterNumber"
+              :min="1"
+              placeholder="章节号"
+              style="width: 100px"
+              size="small"
+            />
+            <n-button
+              size="small"
+              type="primary"
+              :loading="manualScoring"
+              @click="manualScore"
+            >
+              评分
+            </n-button>
+          </n-space>
+          <n-text v-if="manualResult" depth="3" style="font-size: 12px">
+            第{{ manualResult.chapter_number }}章 相似度: {{ manualResult.similarity_score !== null ? (manualResult.similarity_score * 100).toFixed(1) + '%' : '(指纹不足)' }}
+          </n-text>
+        </n-space>
+      </n-collapse-item>
+    </n-collapse>
+
     <n-spin v-if="loading" size="small" class="spin" />
   </div>
 </template>
@@ -44,12 +75,43 @@
 <script setup lang="ts">
 import { ref, onMounted, h } from 'vue'
 import { NTag, NProgress } from 'naive-ui'
-import { voiceDriftApi, type DriftReportResponse } from '@/api/voiceDrift'
+import { voiceDriftApi, type DriftReportResponse, type ScoreChapterResponse } from '@/api/voiceDrift'
+import { chapterApi } from '@/api/chapter'
 
 const props = defineProps<{ slug: string }>()
 
 const loading = ref(false)
 const report = ref<DriftReportResponse | null>(null)
+
+// 手动评分
+const manualChapterNumber = ref<number | null>(null)
+const manualScoring = ref(false)
+const manualResult = ref<ScoreChapterResponse | null>(null)
+
+async function manualScore() {
+  const n = manualChapterNumber.value
+  if (!n || !props.slug) return
+  manualScoring.value = true
+  manualResult.value = null
+  try {
+    const chapter = await chapterApi.getChapter(props.slug, n)
+    if (!chapter?.content) {
+      manualResult.value = { chapter_number: n, similarity_score: null, drift_alert: false }
+      return
+    }
+    const r = await voiceDriftApi.scoreChapter(props.slug, {
+      chapter_number: n,
+      content: chapter.content,
+    })
+    manualResult.value = r
+    // 刷新报告
+    await load()
+  } catch {
+    manualResult.value = null
+  } finally {
+    manualScoring.value = false
+  }
+}
 
 async function load() {
   if (!props.slug) return
@@ -142,5 +204,9 @@ onMounted(load)
 .spin {
   align-self: center;
   margin-top: 20px;
+}
+.manual-score-collapse {
+  border-top: 1px solid var(--n-border-color, #e0e0e6);
+  padding-top: 4px;
 }
 </style>
