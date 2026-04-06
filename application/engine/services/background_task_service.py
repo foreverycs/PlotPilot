@@ -57,6 +57,8 @@ class BackgroundTaskService:
         triple_repository=None,
         knowledge_service=None,
         chapter_indexing_service=None,
+        storyline_repository=None,
+        chapter_repository=None,
     ):
         self.voice_drift_service = voice_drift_service
         self.llm_service = llm_service
@@ -64,6 +66,8 @@ class BackgroundTaskService:
         self.triple_repository = triple_repository
         self.knowledge_service = knowledge_service
         self.chapter_indexing_service = chapter_indexing_service
+        self.storyline_repository = storyline_repository
+        self.chapter_repository = chapter_repository
 
         self._queue = queue.Queue(maxsize=200)  # 防队列无限增长
         self._worker = threading.Thread(target=self._worker_loop, daemon=True, name="bg-task-worker")
@@ -135,7 +139,7 @@ class BackgroundTaskService:
         logger.info(f"[BG] 文风分析完成：第 {chapter_number} 章")
 
     def _handle_extract_bundle(self, task):
-        """章末 bundle：一次 LLM → 叙事落库 + 三元组 + 伏笔 + 向量（与管线 narrative_sync 一致）。"""
+        """章末 bundle：一次 LLM → 叙事落库 + 三元组 + 伏笔 + 故事线 + 张力 + 对话 + 向量（与管线 narrative_sync 一致）。"""
         if not self.llm_service or not self.knowledge_service:
             return
         content = (task.payload.get("content") or "").strip()
@@ -156,6 +160,8 @@ class BackgroundTaskService:
                     self.llm_service,
                     triple_repository=self.triple_repository,
                     foreshadowing_repo=self.foreshadowing_repo,
+                    storyline_repository=self.storyline_repository,
+                    chapter_repository=self.chapter_repository,
                 )
             )
         except RuntimeError as e:
@@ -173,6 +179,8 @@ class BackgroundTaskService:
                         self.llm_service,
                         triple_repository=self.triple_repository,
                         foreshadowing_repo=self.foreshadowing_repo,
+                        storyline_repository=self.storyline_repository,
+                        chapter_repository=self.chapter_repository,
                     )
                 )
             finally:

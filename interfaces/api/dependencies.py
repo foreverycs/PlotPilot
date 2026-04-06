@@ -214,9 +214,11 @@ def get_chapter_service() -> ChapterService:
 
 @lru_cache
 def get_background_task_service():
-    """单例后台任务队列（API 进程内）：文风；章末 bundle（叙事+三元组+伏笔）与管线同源单次 LLM。"""
+    """单例后台任务队列（API 进程内）：文风；章末 bundle（叙事+三元组+伏笔+故事线+张力+对话）与管线同源单次 LLM。"""
     from application.engine.services.background_task_service import BackgroundTaskService
     from infrastructure.persistence.database.triple_repository import TripleRepository
+    from infrastructure.persistence.database.sqlite_storyline_repository import SqliteStorylineRepository
+    from infrastructure.persistence.database.connection import get_database
 
     return BackgroundTaskService(
         voice_drift_service=get_voice_drift_service(),
@@ -225,6 +227,8 @@ def get_background_task_service():
         triple_repository=TripleRepository(),
         knowledge_service=get_knowledge_service(),
         chapter_indexing_service=get_chapter_indexing_service(),
+        storyline_repository=SqliteStorylineRepository(get_database()),
+        chapter_repository=get_chapter_repository(),
     )
 
 

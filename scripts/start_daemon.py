@@ -20,6 +20,7 @@ from infrastructure.persistence.database.sqlite_chapter_repository import Sqlite
 from infrastructure.persistence.database.story_node_repository import StoryNodeRepository
 from infrastructure.persistence.database.chapter_element_repository import ChapterElementRepository
 from infrastructure.persistence.database.sqlite_foreshadowing_repository import SqliteForeshadowingRepository
+from infrastructure.persistence.database.sqlite_storyline_repository import SqliteStorylineRepository
 
 from application.engine.services.autopilot_daemon import AutopilotDaemon
 from application.engine.services.background_task_service import BackgroundTaskService
@@ -97,6 +98,8 @@ def build_daemon() -> AutopilotDaemon:
         triple_repository=triple_repo,
         knowledge_service=get_knowledge_service(),
         chapter_indexing_service=get_chapter_indexing_service(),
+        storyline_repository=SqliteStorylineRepository(get_database()),
+        chapter_repository=get_chapter_repository(),
     )
 
     aftermath_pipeline = None
@@ -108,8 +111,10 @@ def build_daemon() -> AutopilotDaemon:
             voice_drift_service=voice_drift_service,
             triple_repository=triple_repo,
             foreshadowing_repository=foreshadow_repo,
+            storyline_repository=SqliteStorylineRepository(get_database()),
+            chapter_repository=get_chapter_repository(),
         )
-        logger.info("ChapterAftermathPipeline 已注入（叙事/向量/文风/KG；三元组与伏笔单次 LLM）")
+        logger.info("ChapterAftermathPipeline 已注入（叙事/向量/文风/KG；三元组与伏笔、故事线、张力、对话单次 LLM）")
     except Exception as e:
         logger.warning("ChapterAftermathPipeline 初始化失败，审计将降级：%s", e)
 
