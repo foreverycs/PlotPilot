@@ -11,6 +11,7 @@ import time
 import logging
 import asyncio
 import sqlite3
+from datetime import datetime, timezone
 from typing import Any, Dict, List, Optional
 
 from domain.novel.entities.novel import Novel, NovelStage, AutopilotStatus
@@ -647,6 +648,13 @@ class AutopilotDaemon:
         tension = await self._score_tension(content)
         novel.last_chapter_tension = tension
         logger.info(f"[{novel.novel_id}] 章节 {chapter_num} 张力值：{tension}/10")
+
+        # 章末审阅快照（写入 novels，供 /autopilot/status 与前台「章节状态 / 章节元素」）
+        novel.last_audit_chapter_number = chapter_num
+        novel.last_audit_similarity = drift_result.get("similarity_score")
+        novel.last_audit_drift_alert = bool(drift_result.get("drift_alert", False))
+        novel.last_audit_narrative_ok = bool(drift_result.get("narrative_sync_ok", True))
+        novel.last_audit_at = datetime.now(timezone.utc).replace(microsecond=0).isoformat()
 
         drift_too_high = bool(drift_result.get("drift_alert", False))
         if drift_result.get("similarity_score") is not None:

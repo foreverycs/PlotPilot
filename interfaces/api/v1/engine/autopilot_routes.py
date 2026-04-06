@@ -166,6 +166,18 @@ async def get_autopilot_status(novel_id: str):
     in_manuscript = [c for c in chapters if _status(c) in ("draft", "completed")]
     target = novel.target_chapters or 1
 
+    lacn = getattr(novel, "last_audit_chapter_number", None)
+    last_chapter_audit = None
+    if lacn is not None:
+        last_chapter_audit = {
+            "chapter_number": int(lacn),
+            "tension": int(getattr(novel, "last_chapter_tension", 0) or 0),
+            "drift_alert": bool(getattr(novel, "last_audit_drift_alert", False)),
+            "similarity_score": getattr(novel, "last_audit_similarity", None),
+            "narrative_sync_ok": bool(getattr(novel, "last_audit_narrative_ok", True)),
+            "at": getattr(novel, "last_audit_at", None),
+        }
+
     return {
         "autopilot_status": novel.autopilot_status.value,
         "current_stage": novel.current_stage.value,
@@ -183,6 +195,7 @@ async def get_autopilot_status(novel_id: str):
         "manuscript_chapters": len(in_manuscript),
         "progress_pct_manuscript": round(len(in_manuscript) / target * 100, 1) if target else 0,
         "needs_review": novel.current_stage.value == "paused_for_review",
+        "last_chapter_audit": last_chapter_audit,
     }
 
 
