@@ -229,6 +229,40 @@ class NovelService:
         novel = self.novel_repository.get_by_id(NovelId(novel_id))
         return NovelDTO.from_domain(novel)
 
+    def update_novel(self, novel_id: str, title: Optional[str] = None, author: Optional[str] = None, 
+                     target_chapters: Optional[int] = None, premise: Optional[str] = None) -> NovelDTO:
+        """更新小说基本信息
+
+        Args:
+            novel_id: 小说 ID
+            title: 小说标题（可选）
+            author: 作者（可选）
+            target_chapters: 目标章节数（可选）
+            premise: 故事梗概/创意（可选）
+
+        Returns:
+            更新后的 NovelDTO
+
+        Raises:
+            EntityNotFoundError: 如果小说不存在
+        """
+        novel = self.novel_repository.get_by_id(NovelId(novel_id))
+        if novel is None:
+            raise EntityNotFoundError("Novel", novel_id)
+
+        # 更新提供的字段
+        if title is not None:
+            novel.title = title
+        if author is not None:
+            novel.author = author
+        if target_chapters is not None:
+            novel.target_chapters = target_chapters
+        if premise is not None:
+            novel.premise = premise
+
+        self.novel_repository.save(novel)
+        return NovelDTO.from_domain(novel)
+
     def update_novel_stage(self, novel_id: str, stage: str) -> NovelDTO:
         """更新小说阶段
 

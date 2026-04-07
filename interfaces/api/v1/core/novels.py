@@ -35,6 +35,14 @@ class UpdateStageRequest(BaseModel):
     stage: str = Field(..., description="小说阶段")
 
 
+class UpdateNovelRequest(BaseModel):
+    """更新小说基本信息请求"""
+    title: str = Field(None, description="小说标题")
+    author: str = Field(None, description="作者")
+    target_chapters: int = Field(None, gt=0, description="目标章节数")
+    premise: str = Field(None, description="故事梗概/创意")
+
+
 async def _generate_bible_background(
     novel_id: str,
     title: str,
@@ -135,6 +143,31 @@ async def list_novels(service: NovelService = Depends(get_novel_service)):
         小说 DTO 列表
     """
     return service.list_novels()
+
+
+@router.put("/{novel_id}", response_model=NovelDTO)
+async def update_novel(
+    novel_id: str,
+    request: UpdateNovelRequest,
+    service: NovelService = Depends(get_novel_service)
+):
+    """更新小说基本信息
+
+    Args:
+        novel_id: 小说 ID
+        request: 更新小说请求
+        service: Novel 服务
+
+    Returns:
+        更新后的小说 DTO
+
+    Raises:
+        HTTPException: 如果小说不存在
+    """
+    try:
+        return service.update_novel(novel_id, request.title, request.author, request.target_chapters, request.premise)
+    except EntityNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e))
 
 
 @router.put("/{novel_id}/stage", response_model=NovelDTO)
